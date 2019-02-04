@@ -2,15 +2,17 @@
 #
 # Open port to specified env or default env
 #
-import re
-import psutil
 import argparse
+import re
+import subprocess
+
+import psutil
 
 ###########
 # CONFIGS #
 ###########
-default_user = 'user'
-default_env = 'sandbox-23'
+default_user = 'anpanov'
+default_env = 'anpanov.ru'
 
 aliases = {
     'RIAK': {'port': '8098'},
@@ -32,10 +34,10 @@ reverse = {
 }
 
 # Globals
-search_pattern = ".*-(?P<dest>[L|R]) (?P<lport>\d{2,5}):(?P<rhost>.*):(?P<rport>\d{2,5}) user@(" \
-                 "?P<env>%s)\.some-host\.com"
-forward_pattern = "ssh -nfNT -L %s:%s:%s user@%s.some-host.com"
-reverse_pattern = "ssh -nfNT -R %s:%s:%s user@%s.some-host.com"
+ssh_pattern = "ssh %s@%s"
+search_pattern = ".*-(?P<dest>[L|R]) (?P<lport>\d{2,5}):(?P<rhost>.+):(?P<rport>\d{2,5}) %s@(?P<env>%s)"
+forward_pattern = "ssh -nfNT -L %s:%s:%s %s@%s"
+reverse_pattern = "ssh -nfNT -R %s:%s:%s %s@%s"
 
 
 class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
@@ -68,12 +70,12 @@ def tunnels_print(tunnel_list):
         tunnel_print(t)
 
 
-def get_tunnels(env, ports_map):
+def get_tunnels(uname, env, ports_map):
     tunnels = []
     for p in psutil.process_iter(attrs=['pid', 'name', 'cmdline']):
         cmdline = ' '.join(p.info['cmdline'])
-        matches = re.match(search_pattern % env, cmdline)
-        if not matches or (ports_map and {'port': matches.group('rport')} not in ports_map):
+        matches = re.match(search_pattern % (uname, env), cmdline)
+        if not matches or (len(ports_map) and not any(d['port'] == matches.group('rport') for d in ports_map)):
             continue
 
         tunnel = Tunnel()
@@ -101,32 +103,37 @@ def kill_tunnels(tunnels):
         print '[\033[1;32mOK\033[1;m]'
 
 
-def forward_tunnels(env, ports_map):
+def forward_tunnels(uname, env, ports_map):
     if not ports_map:
         return
 
-    kill_tunnels(get_tunnels(env, ports_map))
+    kill_tunnels(get_tunnels(uname, env, ports_map))
     for p in ports_map:
         print 'Making forward tunnel for %s on port %s...' % (reverse.get(p['port'], 'UNKNOWN'), p['port']),
-        psutil.Popen([forward_pattern % (p['port'], p.get('host', 'localhost'), p['port'], env)], shell=True)
+        psutil.Popen([forward_pattern % (p['port'], p.get('host', 'localhost'), p['port'], uname, env)], shell=True)
         print '[\033[1;32mOK\033[1;m]'
 
 
-def back_tunnels(env, ports_map):
+def back_tunnels(uname, env, ports_map):
     if not ports_map:
         return
 
-    kill_tunnels(get_tunnels(env, ports_map))
+    kill_tunnels(get_tunnels(uname, env, ports_map))
     for p in ports_map:
         print 'Making backdoor tunnel for %s on port %s...' % (reverse.get(p['port'], 'UNKNOWN'), p['port']),
-        psutil.Popen([reverse_pattern % (p['port'], p.get('host', 'localhost'), p['port'], env)], shell=True)
+        psutil.Popen([reverse_pattern % (p['port'], p.get('host', 'localhost'), p['port'], uname, env)], shell=True)
         print '[\033[1;32mOK\033[1;m]'
+
+
+def ssh_connect(uname, env):
+    subprocess.call(ssh_pattern % (uname, env), shell=True)
 
 
 # MAIN
 description = '-= Tunnel maker =-'
 epilog = 'Examples:\n' \
          '  tunnel                                      - show all active tunnels\n' \
+         '  tunnel -t                                   - open ssh connection to specified env\n' \
          '  tunnel -p redis                             - show active tunnels for redis\n' \
          '  tunnel -e sandbox-23 -l -p redis 8881       - forward ports for redis and 8881 port to sandbox-23\n' \
          '  tunnel -r -p 8881                           - backdoor port for stats to default env\n' \
@@ -141,6 +148,8 @@ parser.add_argument('-u', '--user', action='store', default=None, dest='user',
                     help='specify username for tunnels')
 parser.add_argument('-s', '--show', action='store_true', default=False, dest='show',
                     help='show list of active tunnels')
+parser.add_argument('-t', '--tty', action='store_true', default=False, dest='tty',
+                    help='open ssh connection to specified env')
 parser.add_argument('-k', '--kill', action='store_true', default=False, dest='kill',
                     help='terminate active tunnels')
 parser.add_argument('-r', '--remote', action='store_true', default=False, dest='remote',
@@ -152,6 +161,7 @@ parser.add_argument('-p', '--port', action='append', default=[], dest='ports', n
 
 results = parser.parse_args()
 
+tty = results.tty
 kill = results.kill
 show = results.show
 user = results.user or default_user
@@ -161,20 +171,24 @@ ports = [port for group in results.ports for port in group]
 remote = results.remote
 port_map = [aliases.get(port.upper(), {'port': port}) for port in ports]
 
+if tty:
+    ssh_connect(user, envir)
+    exit(0)
+
 if show:
-    tunnels_print(get_tunnels(envir, port_map))
+    tunnels_print(get_tunnels(user, envir, port_map))
     exit(0)
 
 if kill:
-    kill_tunnels(get_tunnels(envir, port_map))
+    kill_tunnels(get_tunnels(user, envir, port_map))
     exit(0)
 
 if local:
-    forward_tunnels(envir, port_map)
+    forward_tunnels(user, envir, port_map)
     exit(0)
 
 if remote:
-    back_tunnels(envir, port_map)
+    back_tunnels(user, envir, port_map)
     exit(0)
 
-tunnels_print(get_tunnels(envir, port_map))
+tunnels_print(get_tunnels(user, envir, port_map))

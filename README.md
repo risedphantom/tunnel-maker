@@ -16,14 +16,17 @@ cp tunnel ~/bin
 
 ***Основные фичи:***
 ```
-usage: tunnel [-h] [-e ENV] [-s] [-k] [-r] [-l] [-p PORTS [PORTS ...]]
+usage: tunnel [-h] [-e ENV] [-u USER] [-s] [-t] [-k] [-r] [-l]
+              [-p PORTS [PORTS ...]]
 
 -= Tunnel maker =-
 
 optional arguments:
   -h, --help            show this help message and exit
   -e ENV, --env ENV     specify environment for tunnels (default: None)
+  -u USER, --user USER  specify username for tunnels (default: None)
   -s, --show            show list of active tunnels (default: False)
+  -t, --tty             open ssh connection to specified env (default: False)
   -k, --kill            terminate active tunnels (default: False)
   -r, --remote          backdoor remote port to local (default: False)
   -l, --local           map local port to remote (default: False)
@@ -32,11 +35,13 @@ optional arguments:
 
 Examples:
   tunnel                                      - show all active tunnels
-  tunnel -p avia                              - show active tunnels for avia
-  tunnel -e sandbox-23 -lp avia 8881        - forward ports for avia and stats to sandbox-23
+  tunnel -t                                   - open ssh connection to specified env
+  tunnel -p redis                             - show active tunnels for redis
+  tunnel -e sandbox-23 -l -p redis 8881       - forward ports for redis and 8881 port to sandbox-23
   tunnel -r -p 8881                           - backdoor port for stats to default env
   tunnel -k                                   - kill all tunnels
   tunnel -kp stats                            - kill tunnels for stats
+
 ```
 
 ***Как вообще этим пользоваться?***
