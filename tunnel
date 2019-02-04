@@ -1,0 +1,180 @@
+#!/usr/bin/env python
+#
+# Open port to specified env or default env
+#
+import re
+import psutil
+import argparse
+
+###########
+# CONFIGS #
+###########
+default_user = 'user'
+default_env = 'sandbox-23'
+
+aliases = {
+    'RIAK': {'port': '8098'},
+    'REDIS': {'port': '6379'},
+    'MYSQL': {'port': '3306'},
+    'MONGO': {'host': 'mongodb-some-host.com', 'port': '27017'},
+    'MONGODB': {'host': 'mongodb-some-host.com', 'port': '27017'},
+    'FIXED': {'port': '17188'},
+    'FIXED20': {'port': '17188'},
+    'FIXED2.0': {'port': '17188'},
+}
+
+reverse = {
+    '8098': 'Riak',
+    '6379': 'Redis',
+    '3306': 'MySQL',
+    '27017': 'Mongo',
+    '17188': 'Fixed 2.0',
+}
+
+# Globals
+search_pattern = ".*-(?P<dest>[L|R]) (?P<lport>\d{2,5}):(?P<rhost>.*):(?P<rport>\d{2,5}) user@(" \
+                 "?P<env>%s)\.some-host\.com"
+forward_pattern = "ssh -nfNT -L %s:%s:%s user@%s.some-host.com"
+reverse_pattern = "ssh -nfNT -R %s:%s:%s user@%s.some-host.com"
+
+
+class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
+    pass
+
+
+class Tunnel:
+    pass
+
+
+def tunnel_print(t):
+    if t.dest == 'L' and t.rhost == 'localhost':
+        dest = '--FORWARD-->'
+    elif t.dest == 'L' and t.rhost != 'localhost':
+        dest = '---PROXY--->'
+    elif t.dest != 'L' and t.rhost == 'localhost':
+        dest = '\033[1;31m<----BACK---\033[1;m'
+    else:
+        dest = '\033[1;31m<--RPROXY---\033[1;m'
+    print '\033[1;32m%5d\033[1;m  \033[1;31m%-15s\033[1;m  %5s  %s  %5s  %s' % (
+        t.pid, t.name, t.lport, dest, t.rport, t.env)
+
+
+def tunnels_print(tunnel_list):
+    if not tunnel_list:
+        return
+
+    print '\033[1m  PID  NAME             LPORT  DESTINATION   RPORT  ENV\033[0m'
+    for t in tunnel_list:
+        tunnel_print(t)
+
+
+def get_tunnels(env, ports_map):
+    tunnels = []
+    for p in psutil.process_iter(attrs=['pid', 'name', 'cmdline']):
+        cmdline = ' '.join(p.info['cmdline'])
+        matches = re.match(search_pattern % env, cmdline)
+        if not matches or (ports_map and {'port': matches.group('rport')} not in ports_map):
+            continue
+
+        tunnel = Tunnel()
+        tunnel.pid = p.info['pid']
+        tunnel.env = matches.group('env')
+        tunnel.name = reverse.get(matches.group('rport'), 'UNKNOWN')
+        tunnel.dest = matches.group('dest')
+        tunnel.lport = matches.group('lport')
+        tunnel.rhost = matches.group('rhost')
+        tunnel.rport = matches.group('rport')
+
+        tunnels.append(tunnel)
+
+    return tunnels
+
+
+def kill_tunnels(tunnels):
+    if not tunnels:
+        return
+
+    for t in tunnels:
+        print 'Terminating pid %s (%s on port %s)...' % (t.pid, t.name, t.lport),
+        proc = psutil.Process(t.pid)
+        proc.terminate()
+        print '[\033[1;32mOK\033[1;m]'
+
+
+def forward_tunnels(env, ports_map):
+    if not ports_map:
+        return
+
+    kill_tunnels(get_tunnels(env, ports_map))
+    for p in ports_map:
+        print 'Making forward tunnel for %s on port %s...' % (reverse.get(p['port'], 'UNKNOWN'), p['port']),
+        psutil.Popen([forward_pattern % (p['port'], p.get('host', 'localhost'), p['port'], env)], shell=True)
+        print '[\033[1;32mOK\033[1;m]'
+
+
+def back_tunnels(env, ports_map):
+    if not ports_map:
+        return
+
+    kill_tunnels(get_tunnels(env, ports_map))
+    for p in ports_map:
+        print 'Making backdoor tunnel for %s on port %s...' % (reverse.get(p['port'], 'UNKNOWN'), p['port']),
+        psutil.Popen([reverse_pattern % (p['port'], p.get('host', 'localhost'), p['port'], env)], shell=True)
+        print '[\033[1;32mOK\033[1;m]'
+
+
+# MAIN
+description = '-= Tunnel maker =-'
+epilog = 'Examples:\n' \
+         '  tunnel                                      - show all active tunnels\n' \
+         '  tunnel -p redis                             - show active tunnels for redis\n' \
+         '  tunnel -e sandbox-23 -l -p redis 8881       - forward ports for redis and 8881 port to sandbox-23\n' \
+         '  tunnel -r -p 8881                           - backdoor port for stats to default env\n' \
+         '  tunnel -k                                   - kill all tunnels\n' \
+         '  tunnel -kp stats                            - kill tunnels for stats'
+
+parser = argparse.ArgumentParser(description=description, epilog=epilog, formatter_class=CustomFormatter)
+
+parser.add_argument('-e', '--env', action='store', default=None, dest='env',
+                    help='specify environment for tunnels')
+parser.add_argument('-u', '--user', action='store', default=None, dest='user',
+                    help='specify username for tunnels')
+parser.add_argument('-s', '--show', action='store_true', default=False, dest='show',
+                    help='show list of active tunnels')
+parser.add_argument('-k', '--kill', action='store_true', default=False, dest='kill',
+                    help='terminate active tunnels')
+parser.add_argument('-r', '--remote', action='store_true', default=False, dest='remote',
+                    help='backdoor remote port to local')
+parser.add_argument('-l', '--local', action='store_true', default=False, dest='local',
+                    help='map local port to remote')
+parser.add_argument('-p', '--port', action='append', default=[], dest='ports', nargs='+',
+                    help='ports list or known applications aliases')
+
+results = parser.parse_args()
+
+kill = results.kill
+show = results.show
+user = results.user or default_user
+envir = results.env or default_env
+local = results.local
+ports = [port for group in results.ports for port in group]
+remote = results.remote
+port_map = [aliases.get(port.upper(), {'port': port}) for port in ports]
+
+if show:
+    tunnels_print(get_tunnels(envir, port_map))
+    exit(0)
+
+if kill:
+    kill_tunnels(get_tunnels(envir, port_map))
+    exit(0)
+
+if local:
+    forward_tunnels(envir, port_map)
+    exit(0)
+
+if remote:
+    back_tunnels(envir, port_map)
+    exit(0)
+
+tunnels_print(get_tunnels(envir, port_map))
