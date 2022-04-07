@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Open port to specified env or default env
 #
@@ -11,33 +11,49 @@ import psutil
 ###########
 # CONFIGS #
 ###########
-default_user = 'anpanov'
-default_env = 'anpanov.ru'
+default_user = 'mg'
+default_env = 'box01'
 
 aliases = {
-    'RIAK': {'port': '8098'},
+    '1C': {'port': '6000'},
+    'ADMIN': {'port': '6001'},
+    'SEARCH': {'port': '6002'},
+    'API': {'port': '6003'},
+    'CRM': {'port': '6004'},
+    'CRMBACKEND': {'port': '6004'},
+    'CRM_BACKEND': {'port': '6004'},
+    'IMAGES': {'port': '6005'},
+    'CRMFRONT': {'port': '7000'},
+    'CRMFRONTEND': {'port': '7000'},
+    'CRM_FRONTEND': {'port': '7000'},
+    'FRONTEND': {'port': '7000'},
+    'HRD': {'port': '7000'},
     'REDIS': {'port': '6379'},
     'MYSQL': {'port': '3306'},
-    'MONGO': {'host': 'mongodb-some-host.com', 'port': '27017'},
-    'MONGODB': {'host': 'mongodb-some-host.com', 'port': '27017'},
-    'FIXED': {'port': '17188'},
-    'FIXED20': {'port': '17188'},
-    'FIXED2.0': {'port': '17188'},
+    'MONGO': {'port': '27017'},
+    'MONGODB': {'port': '27017'},
 }
 
 reverse = {
-    '8098': 'Riak',
+    '6000': '1c',
+    '6001': 'Admin',
+    '6002': 'Search',
+    '6003': 'Api',
+    '6004': 'Crm backend',
+    '6005': 'Images',
+    '7000': 'Crm frontend',
+    '7001': 'Frontend',
+    '7002': 'Hrd',
     '6379': 'Redis',
     '3306': 'MySQL',
-    '27017': 'Mongo',
-    '17188': 'Fixed 2.0',
+    '27017': 'MongoDB',
 }
 
 # Globals
-ssh_pattern = "ssh %s@%s"
+ssh_pattern = "ssh -J jumper@bastion.mygig.tech:32323 %s@%s.ru-central1.internal"
 search_pattern = ".*-(?P<dest>[L|R]) (?P<lport>\d{2,5}):(?P<rhost>.+):(?P<rport>\d{2,5}) %s@(?P<env>%s)"
-forward_pattern = "ssh -nfNT -L %s:%s:%s %s@%s"
-reverse_pattern = "ssh -nfNT -R %s:%s:%s %s@%s"
+forward_pattern = "ssh -J jumper@bastion.mygig.tech:32323 -nfNT -L %s:%s:%s %s@%s.ru-central1.internal"
+reverse_pattern = "ssh -J jumper@bastion.mygig.tech:32323 -nfNT -R %s:%s:%s %s@%s.ru-central1.internal"
 
 
 class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
@@ -57,15 +73,14 @@ def tunnel_print(t):
         dest = '\033[1;31m<----BACK---\033[1;m'
     else:
         dest = '\033[1;31m<--RPROXY---\033[1;m'
-    print '\033[1;32m%5d\033[1;m  \033[1;31m%-15s\033[1;m  %5s  %s  %5s  %s' % (
-        t.pid, t.name, t.lport, dest, t.rport, t.env)
+    print('\033[1;32m%6d\033[1;m  \033[1;31m%-15s\033[1;m  %5s  %s  %5s  %s' % (t.pid, t.name, t.lport, dest, t.rport, t.env))
 
 
 def tunnels_print(tunnel_list):
     if not tunnel_list:
         return
 
-    print '\033[1m  PID  NAME             LPORT  DESTINATION   RPORT  ENV\033[0m'
+    print('\033[1m   PID  NAME             LPORT  DESTINATION   RPORT  ENV\033[0m')
     for t in tunnel_list:
         tunnel_print(t)
 
@@ -97,10 +112,10 @@ def kill_tunnels(tunnels):
         return
 
     for t in tunnels:
-        print 'Terminating pid %s (%s on port %s)...' % (t.pid, t.name, t.lport),
+        print('Terminating pid %s (%s on port %s)...' % (t.pid, t.name, t.lport), end='')
         proc = psutil.Process(t.pid)
         proc.terminate()
-        print '[\033[1;32mOK\033[1;m]'
+        print('[\033[1;32mOK\033[1;m]')
 
 
 def forward_tunnels(uname, env, ports_map):
@@ -109,9 +124,9 @@ def forward_tunnels(uname, env, ports_map):
 
     kill_tunnels(get_tunnels(uname, env, ports_map))
     for p in ports_map:
-        print 'Making forward tunnel for %s on port %s...' % (reverse.get(p['port'], 'UNKNOWN'), p['port']),
+        print('Making forward tunnel for %s on port %s...' % (reverse.get(p['port'], 'UNKNOWN'), p['port']), end='')
         psutil.Popen([forward_pattern % (p['port'], p.get('host', 'localhost'), p['port'], uname, env)], shell=True)
-        print '[\033[1;32mOK\033[1;m]'
+        print('[\033[1;32mOK\033[1;m]')
 
 
 def back_tunnels(uname, env, ports_map):
@@ -120,9 +135,9 @@ def back_tunnels(uname, env, ports_map):
 
     kill_tunnels(get_tunnels(uname, env, ports_map))
     for p in ports_map:
-        print 'Making backdoor tunnel for %s on port %s...' % (reverse.get(p['port'], 'UNKNOWN'), p['port']),
+        print('Making backdoor tunnel for %s on port %s...' % (reverse.get(p['port'], 'UNKNOWN'), p['port']), end='')
         psutil.Popen([reverse_pattern % (p['port'], p.get('host', 'localhost'), p['port'], uname, env)], shell=True)
-        print '[\033[1;32mOK\033[1;m]'
+        print('[\033[1;32mOK\033[1;m]')
 
 
 def ssh_connect(uname, env):
@@ -135,10 +150,10 @@ epilog = 'Examples:\n' \
          '  tunnel                                      - show all active tunnels\n' \
          '  tunnel -t                                   - open ssh connection to specified env\n' \
          '  tunnel -p redis                             - show active tunnels for redis\n' \
-         '  tunnel -e sandbox-23 -l -p redis 8881       - forward ports for redis and 8881 port to sandbox-23\n' \
-         '  tunnel -r -p 8881                           - backdoor port for stats to default env\n' \
+         '  tunnel -e box01 -l -p redis 6000            - forward ports for redis and 6000 port to sandbox-01\n' \
+         '  tunnel -r -p 6003                           - backdoor port for api service to default env\n' \
          '  tunnel -k                                   - kill all tunnels\n' \
-         '  tunnel -kp stats                            - kill tunnels for stats'
+         '  tunnel -kp api                              - kill tunnels for api service'
 
 parser = argparse.ArgumentParser(description=description, epilog=epilog, formatter_class=CustomFormatter)
 

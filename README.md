@@ -6,8 +6,8 @@
 
 Находясь в папке проекта:
 ```
-sudo apt install python-pip
-pip install psutil
+sudo apt install python3-pip
+pip3 install psutil
 mkdir ~/bin
 echo 'PATH=$HOME/bin:$PATH' >> ~/.profile
 . ~/.profile
@@ -37,18 +37,18 @@ Examples:
   tunnel                                      - show all active tunnels
   tunnel -t                                   - open ssh connection to specified env
   tunnel -p redis                             - show active tunnels for redis
-  tunnel -e sandbox-23 -l -p redis 8881       - forward ports for redis and 8881 port to sandbox-23
-  tunnel -r -p 8881                           - backdoor port for stats to default env
+  tunnel -e box01 -l -p redis 6003            - forward ports for redis and 6003 port to sandbox-01
+  tunnel -r -p 6003                           - backdoor port for api service to default env
   tunnel -k                                   - kill all tunnels
-  tunnel -kp stats                            - kill tunnels for stats
+  tunnel -kp api                              - kill tunnels for api service
 
 ```
 
 ***Как вообще этим пользоваться?***
 
-Допустим иы хотим пробросить 2 тунеля до баз данных - Riak и Redis:
+Допустим иы хотим пробросить 2 тунеля до баз данных - MongoDB и Redis:
 ```
-tunnel -lp riak redis
+tunnel -lp mongo redis
 ```
 Будут созданы 2 ssh тунеля. Посмотреть открытые тунели можно простой командой
 ```
@@ -57,13 +57,13 @@ tunnel
 Увидим:
 ```
  PID  NAME             LPORT  DESTINATION   RPORT  ENV
-4021  Redis             6379  --FORWARD-->   6379  sandbox-23
-4023  Riak              8098  --FORWARD-->   8098  sandbox-23
+4021  Redis             6379  --FORWARD-->   6379  box01
+4023  MongoDB          27017  --FORWARD-->  27017  box01
 ```
 
 ***Теперь чуть посложнее...***
 
-Мы хотим локально дебажить сервис example-service (порт 8012), который использует монгу, риак и редис.
+Мы хотим локально дебажить сервис example-service (порт 6003), который использует монгу и редис.
 При этом запросы мы хотим отправлять на сэндбокс. Допустим на сэндбоксе нет монги и она видна по адресу mongodb-some-host.com, но только внутри сети.
 
 Для этого мы заходим на сэндбокс. Убиваем службу example-service
@@ -72,11 +72,11 @@ sudo systemctl stop example-service
 ```
 Пробрасываем тунели
 ```
-tunnel -lp redis riak mongo
+tunnel -lp redis mongo
 ```
 Пробрасываем обратный бэкдор для example-service
 ```
-tunnel -rp 8012
+tunnel -rp 6003
 ```
 Смотрим список тунелей
 ```
@@ -85,10 +85,9 @@ tunnel
 И видим следующее:
 ```
  PID  NAME             LPORT  DESTINATION   RPORT  ENV
-4289  Riak              8098  --FORWARD-->   8098  sandbox-23
-4293  Mongo            27017  ---PROXY--->  27017  sandbox-23
-4294  Redis             6379  --FORWARD-->   6379  sandbox-23
-4300  UNKNOWN           8012  <----BACK---   8012  sandbox-23
+4293  Mongo            27017  ---PROXY--->  27017  box01
+4294  Redis             6379  --FORWARD-->   6379  box01
+4300  UNKNOWN           6003  <----BACK---   6003  box01
 ```
 
 Local port forwarding обозначается как --FORWARD--> (прямой проброс портов)
